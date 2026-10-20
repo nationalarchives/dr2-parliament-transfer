@@ -5,7 +5,7 @@ transfer bucket into the existing CTD data-processing bucket and publishes repli
 
 ## How it works
 
-1. A `.metadata` object and and accompanying file are uploaded to the transfer bucket using the adhoc ingest script.
+1. A `.metadata` object and accompanying file are uploaded to the transfer bucket using the adhoc ingest script.
 2. An S3 notification sends an event to an SQS queue.
 3. The `send-to-discovery` Lambda reads the metadata and the corresponding asset files from the transfer bucket.
 4. Files are copied to the CTD bucket under `files/{IAID}/`. TIFF files (`.tif` and `.tiff`) are converted to JPEG using
