@@ -1,0 +1,43 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        environment:
+          - dev
+          - staging
+          - prod
+    environment: ${{ matrix.environment }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      ENVIRONMENT: ${{ matrix.environment }}
+      TF_VAR_ctd_kms_key_arn: ${{ secrets.CTD_KMS_KEY_ARN }}
+      TF_VAR_dr2_importer_role_arn: ${{ secrets.DR2_IMPORTER_ROLE_ARN }}
+      TF_VAR_dr2_transfer_role_arn: ${{ secrets.DR2_TRANSFER_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e #v4.0.1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd #v6.3.0
+        with:
+          role-to-assume: ${{ secrets.DEPLOY_ROLE }}
+          role-session-name: dr2-parliament-transfer-${{ matrix.environment }}
+          aws-region: eu-west-2
+      - run: scripts/build_lambda.sh
+      - name: Run terraform
+        run: |
+          export TF_VAR_layer_version_arn=$( aws lambda list-layers | jq -r '.Layers.[] | select(.LayerName | startswith("imagemagick")) | .LatestMatchingVersion.LayerVersionArn')
+          terraform init
+          terraform workspace select $ENVIRONMENT
+          terraform apply -auto-approve
