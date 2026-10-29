@@ -21,7 +21,7 @@ def lambda_handler(event, context):
             json_metadata = get_json_metadata(bucket, key)
             asset_id = json_metadata[0]['UUID']
             iaid = json_metadata[0]["IAID"]
-            asset_source = json_metadata[0].get('digitalAssetSource', 'Born Digital')
+            asset_source = json_metadata[0].get('digitalAssetSource', 'BornDigital')
             replica_files = []
             for metadata in json_metadata:
                 file_id = metadata['fileId']
