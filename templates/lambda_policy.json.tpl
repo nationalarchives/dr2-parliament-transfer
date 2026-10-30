@@ -13,10 +13,12 @@
     },
     {
       "Action": [
-        "s3:PutObject"
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::${ctd_bucket}/*",
+        "arn:aws:s3:::${ctd_bucket}",
         "arn:aws:s3:::${ctd_bucket}/*"
       ],
       "Effect": "Allow",
