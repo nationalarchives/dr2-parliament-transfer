@@ -1,3 +1,4 @@
 .terraform/
 lambda.zip
 package/
+__pycache__/

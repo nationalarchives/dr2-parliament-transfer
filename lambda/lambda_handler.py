@@ -21,9 +21,11 @@ def lambda_handler(event, context):
             json_metadata = get_json_metadata(bucket, key)
             asset_id = json_metadata[0]['UUID']
             iaid = json_metadata[0]["IAID"]
-            asset_source = json_metadata[0].get('digitalAssetSource', 'BornDigital')
+            asset_source = json_metadata[0].get('digitalAssetSource', 'BornDigital').replace(" ", "")
+            delete_replica_files(iaid)
             replica_files = []
             for metadata in json_metadata:
+                series = metadata['Series']
                 file_id = metadata['fileId']
                 file_name = metadata['Filename']
                 file_extension = metadata['Filename'].split(".")[-1]
@@ -34,7 +36,6 @@ def lambda_handler(event, context):
                     file_extension = "jpg"
                     file_size = int(len(jpg_bytes) / 1000)
                 else:
-
                     files_copy_source = {"Bucket": bucket, "Key": key}
                     s3_client.copy(files_copy_source, ctd_bucket, f"files/{iaid}/{file_id}.{file_extension}")
                     head_object_response = s3_client.head_object(Bucket=bucket, Key=key)
@@ -43,7 +44,7 @@ def lambda_handler(event, context):
                 replica_files.append({
                     "checkSum": metadata['checksum_sha256'],
                     "format": file_extension,
-                    "name": file_id,
+                    "name": f"66/{series}/{file_id}.{file_extension}",
                     "originalName": file_name,
                     "size": file_size
                 })
@@ -57,6 +58,18 @@ def lambda_handler(event, context):
             }
             metadata_body = io.BytesIO(json.dumps(replica_metadata).encode("utf-8"))
             s3_client.upload_fileobj(metadata_body, ctd_bucket, f"metadata/{iaid}.json")
+
+
+def delete_replica_files(iaid):
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=ctd_bucket, Prefix=f"files/{iaid}/"):
+        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        if objects:
+            response = s3_client.delete_objects(
+                Bucket=ctd_bucket, Delete={"Objects": objects}
+            )
+            if response.get("Errors"):
+                raise RuntimeError(f"Failed to delete replica files: {response['Errors']}")
 
 
 def convert_file(bucket, key):
@@ -81,4 +94,3 @@ def get_json_metadata(bucket, key):
     response = s3_client.get_object(Bucket=bucket, Key=key)
     json_metadata = json.loads(response['Body'].read().decode('utf-8'))
     return json_metadata
-

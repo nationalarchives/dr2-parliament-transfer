@@ -18,6 +18,46 @@ class LambdaHandlerTests(unittest.TestCase):
     def setUp(self):
         self.s3_client = Mock()
         lambda_handler.s3_client = self.s3_client
+        self.s3_client.get_paginator.return_value.paginate.return_value = []
+
+    def test_delete_replica_files_deletes_every_page(self):
+        pages = [
+            {"Contents": [{"Key": f"files/iaid-456/file-{i}"} for i in range(1000)]},
+            {"Contents": [{"Key": "files/iaid-456/last-file"}]},
+        ]
+        self.s3_client.get_paginator.return_value.paginate.return_value = pages
+        self.s3_client.delete_objects.return_value = {}
+
+        lambda_handler.delete_replica_files("iaid-456")
+
+        self.s3_client.get_paginator.assert_called_once_with("list_objects_v2")
+        self.s3_client.get_paginator.return_value.paginate.assert_called_once_with(
+            Bucket="test-ctd", Prefix="files/iaid-456/"
+        )
+        self.assertEqual(self.s3_client.delete_objects.call_count, 2)
+        for delete_call, page in zip(self.s3_client.delete_objects.call_args_list, pages):
+            self.assertEqual(
+                delete_call.kwargs,
+                {"Bucket": "test-ctd", "Delete": {"Objects": page["Contents"]}},
+            )
+
+    def test_delete_replica_files_handles_empty_prefix(self):
+        self.s3_client.get_paginator.return_value.paginate.return_value = [{}]
+
+        lambda_handler.delete_replica_files("iaid-456")
+
+        self.s3_client.delete_objects.assert_not_called()
+
+    def test_delete_replica_files_raises_on_partial_failure(self):
+        self.s3_client.get_paginator.return_value.paginate.return_value = [
+            {"Contents": [{"Key": "files/iaid-456/old-file"}]}
+        ]
+        self.s3_client.delete_objects.return_value = {
+            "Errors": [{"Key": "files/iaid-456/old-file", "Code": "AccessDenied"}]
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to delete replica files"):
+            lambda_handler.delete_replica_files("iaid-456")
 
     def test_get_json_metadata_reads_and_decodes_s3_object(self):
         metadata = [{"UUID": "asset-123", "IAID": "iaid-456"}]
@@ -70,6 +110,7 @@ class LambdaHandlerTests(unittest.TestCase):
             {
                 "UUID": "asset-123",
                 "IAID": "iaid-456",
+                "Series": "series-1",
                 "fileId": "file-10",
                 "Filename": "image10.png",
                 "checksum_sha256": "checksum-10",
@@ -77,6 +118,7 @@ class LambdaHandlerTests(unittest.TestCase):
             {
                 "UUID": "asset-123",
                 "IAID": "iaid-456",
+                "Series": "series-1",
                 "fileId": "file-2",
                 "Filename": "image2.tif",
                 "checksum_sha256": "checksum-2",
@@ -101,9 +143,23 @@ class LambdaHandlerTests(unittest.TestCase):
                 }
             ]
         }
+        self.s3_client.get_paginator.return_value.paginate.return_value = [
+            {"Contents": [{"Key": "files/iaid-456/old-file"}]}
+        ]
+        self.s3_client.delete_objects.return_value = {}
+        self.s3_client.copy.side_effect = lambda *args: (
+            self.s3_client.delete_objects.assert_called_once()
+        )
 
         lambda_handler.lambda_handler(event, None)
 
+        self.s3_client.get_paginator.return_value.paginate.assert_called_once_with(
+            Bucket="test-ctd", Prefix="files/iaid-456/"
+        )
+        self.s3_client.delete_objects.assert_called_once_with(
+            Bucket="test-ctd",
+            Delete={"Objects": [{"Key": "files/iaid-456/old-file"}]},
+        )
         get_metadata.assert_called_once_with("source-bucket", "metadata.json")
         self.s3_client.copy.assert_called_once_with(
             {"Bucket": "source-bucket", "Key": "asset-123/file-10"},
@@ -135,20 +191,20 @@ class LambdaHandlerTests(unittest.TestCase):
                     {
                         "checkSum": "checksum-2",
                         "format": "jpg",
-                        "name": "file-2",
+                        "name": "66/series-1/file-2.jpg",
                         "originalName": "image2.tif",
                         "size": 2,
                     },
                     {
                         "checkSum": "checksum-10",
                         "format": "png",
-                        "name": "file-10",
+                        "name": "66/series-1/file-10.png",
                         "originalName": "image10.png",
                         "size": 3,
                     },
                 ],
                 "replicaId": "asset-123",
-                "origination": "Born Digital",
+                "origination": "BornDigital",
                 "totalSize": 5,
             },
         )
